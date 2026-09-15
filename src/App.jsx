@@ -145,6 +145,23 @@ function useCollection(path, orderField = 'createdAt', dir = 'desc', max) {
   return { data }
 }
 
+/** 컬렉션이 아닌 문서 하나(예: 관리자 설정)를 구독합니다. */
+function useDoc(path, id) {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    if (!id) return
+    try {
+      return onSnapshot(doc(db, ...path, id), (snap) => {
+        setData(snap.exists() ? { id: snap.id, ...snap.data() } : null)
+      }, () => {})
+    } catch {
+      return () => {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path.join('/'), id])
+  return data
+}
+
 /** 공지사항·문의 내용 속의 인터넷 주소를 눌러서 바로 이동할 수 있는 링크로 바꿔줍니다. */
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi
 function Linkify({ text }) {
@@ -204,6 +221,7 @@ async function ensureSeedData() {
       content: '홈페이지가 새로 열렸습니다. 매월 둘째 주 화요일 여행에서 찍은 사진과 영상을 자유롭게 올리고, 보고, 다운로드해 보세요.',
       createdAt: serverTimestamp(),
     })
+    await setDoc(doc(db, COL.config, 'notify'), { phone: '01047543767', createdAt: serverTimestamp() })
     await setDoc(markerRef, { seededAt: serverTimestamp() })
   } catch (e) {
     console.warn('샘플 데이터 생성 실패:', e)
@@ -845,12 +863,21 @@ function InquiryPage({ isAdmin, showToast }) {
   const { data: inquiries } = useCollection([COL.inquiries], 'createdAt', 'desc')
   const [form, setForm] = useState({ name: '', contact: '', message: '' })
   const [replyDraft, setReplyDraft] = useState({})
+  const notifyConfig = useDoc([COL.config], 'notify')
 
   const submit = async () => {
     if (!form.name.trim() || !form.contact.trim() || !form.message.trim()) { showToast('이름, 연락처, 내용을 모두 입력해주세요.', 'error'); return }
-    await fsAdd([COL.inquiries], { ...form, answered: false, answer: '' })
+    const { name, contact, message } = form
+    await fsAdd([COL.inquiries], { name, contact, message, answered: false, answer: '' })
     setForm({ name: '', contact: '', message: '' })
     showToast('문의가 접수되었습니다. 확인 후 연락드릴게요!')
+    if (notifyConfig?.phone) {
+      fetch('/api/notify-inquiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, contact, message, to: notifyConfig.phone }),
+      }).catch(() => {})
+    }
   }
 
   const reply = async (id) => {
@@ -911,7 +938,7 @@ function AdminFeaturedTab({ trips, showToast }) {
       const snap = await getDocs(collection(db, COL.trips, t.id, COL.media))
       snap.docs.forEach((d) => {
         const data = d.data()
-        if (data.type === 'photo') all.push({ id: d.id, tripId: t.id, tripTitle: t.title, ...data })
+        if (data.type === 'photo') all.push({ id: d.id, tripId: t.id, tripTitle: t.title, tripDate: t.date, ...data })
       })
     }
     setPool(all)
@@ -921,6 +948,17 @@ function AdminFeaturedTab({ trips, showToast }) {
   useEffect(() => { load() }, [load])
 
   const featuredCount = pool.filter((p) => p.featured).length
+
+  /** 어느 여행 사진인지 한눈에 보이도록 여행별로 묶습니다. */
+  const groups = useMemo(() => {
+    const list = []
+    for (const p of pool) {
+      const last = list[list.length - 1]
+      if (last && last.tripId === p.tripId) last.items.push(p)
+      else list.push({ tripId: p.tripId, tripTitle: p.tripTitle, tripDate: p.tripDate, items: [p] })
+    }
+    return list
+  }, [pool])
 
   const toggle = async (p) => {
     if (!p.featured && featuredCount >= 5) { showToast('대표사진은 최대 5장까지 선택할 수 있어요.', 'error'); return }
@@ -937,16 +975,56 @@ function AdminFeaturedTab({ trips, showToast }) {
     <div>
       <p style={{ ...S.sub, marginBottom: 14 }}>홈 화면 상단에 2초 간격으로 돌아가며 보여줄 대표사진을 최대 5장 선택하세요. ({featuredCount}/5)</p>
       {loading ? <div>불러오는 중…</div> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 10 }}>
-          {pool.map((p) => (
-            <div key={p.id} onClick={() => toggle(p)} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : `2px solid ${COLORS.border}` }}>
-              <img src={toThumbUrl(p.url, 300)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              {p.featured && <div style={{ position: 'absolute', top: 4, right: 4, background: COLORS.greenBright, color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 13, fontWeight: 800 }}>★ 대표</div>}
+        groups.length === 0 ? <div style={{ color: COLORS.sub }}>등록된 사진이 없습니다.</div> : (
+          groups.map((g) => (
+            <div key={g.tripId} style={{ marginBottom: 24 }}>
+              <div style={{ fontWeight: 800, color: COLORS.blueDark, marginBottom: 10, fontSize: 16 }}>
+                🗓️ {g.tripTitle} {g.tripDate ? `· ${fmtDateLong(g.tripDate)}` : ''}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 10 }}>
+                {g.items.map((p) => (
+                  <div key={p.id} onClick={() => toggle(p)} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : `2px solid ${COLORS.border}` }}>
+                    <img src={toThumbUrl(p.url, 300)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {p.featured && <div style={{ position: 'absolute', top: 4, right: 4, background: COLORS.greenBright, color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 13, fontWeight: 800 }}>★ 대표</div>}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-          {pool.length === 0 && <div style={{ color: COLORS.sub }}>등록된 사진이 없습니다.</div>}
-        </div>
+          ))
+        )
       )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════
+   관리자 - 문의 알림 휴대폰번호 설정
+══════════════════════════════════════ */
+function AdminNotifyTab({ showToast }) {
+  const config = useDoc([COL.config], 'notify')
+  const [phone, setPhone] = useState('')
+
+  useEffect(() => { setPhone(config?.phone || '') }, [config?.phone])
+
+  const save = async () => {
+    const digits = phone.replace(/[^0-9]/g, '')
+    if (digits.length < 9) { showToast('휴대폰번호를 정확히 입력해주세요.', 'error'); return }
+    await fsSet([COL.config], 'notify', { phone: digits })
+    showToast('알림 받을 휴대폰번호가 저장되었습니다.')
+  }
+
+  return (
+    <div>
+      <p style={{ ...S.sub, marginBottom: 14 }}>문의하기가 접수되면 문자로 알려드릴 휴대폰번호입니다.</p>
+      <div style={S.label}>휴대폰번호</div>
+      <input style={{ ...S.input, maxWidth: 320, marginBottom: 12 }} placeholder="010-0000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <div>
+        <button onClick={save} style={S.btn(COLORS.blue)}>저장</button>
+      </div>
+      <div style={{ fontSize: 14, color: COLORS.sub, marginTop: 14, lineHeight: 1.7 }}>
+        · 문자 발송을 실제로 사용하려면 문자 발송 서비스(Solapi) 연동 설정이 필요합니다. (README 참고)<br />
+        · 설정 전에도 문의 내용은 홈페이지에 정상적으로 접수·저장됩니다.
+      </div>
     </div>
   )
 }
@@ -960,6 +1038,7 @@ function AdminPanel({ notices, trips, showToast }) {
     ['featured', '⭐ 대표사진'],
     ['notices', '📢 공지 현황'],
     ['trips', '📷 여행 현황'],
+    ['notify', '📱 문의 알림'],
   ]
   return (
     <div style={S.page}>
@@ -984,6 +1063,7 @@ function AdminPanel({ notices, trips, showToast }) {
             <p style={S.sub}>여행 등록·삭제와 사진·영상 관리는 <b>여행앨범</b> 메뉴에서 바로 할 수 있어요. (총 {trips.length}건)</p>
           </div>
         )}
+        {tab === 'notify' && <AdminNotifyTab showToast={showToast} />}
       </div>
     </div>
   )

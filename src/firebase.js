@@ -27,6 +27,7 @@ export const db = getFirestore(app)
  *   trips/{id}/media 각 여행의 사진·영상·자료
  *   inquiries        문의하기
  *   featured         홈 화면에 표시할 대표사진(최대 5장)
+ *   config           관리자 설정 (문의 알림 받을 휴대폰번호 등)
  */
 export const COL = {
   notices: 'club_notices',
@@ -34,4 +35,5 @@ export const COL = {
   media: 'media',
   inquiries: 'club_inquiries',
   featured: 'club_featured',
+  config: 'club_config',
 }
