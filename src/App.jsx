@@ -1011,8 +1011,11 @@ function InquiryPage({ isAdmin, showToast }) {
    관리자 - 대표사진 선택
 ══════════════════════════════════════ */
 function AdminFeaturedTab({ trips, showToast }) {
+  const { data: featuredList } = useCollection([COL.featured], 'addedAt', 'asc')
   const [pool, setPool] = useState([])
   const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(null)
+  const fileInputRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1030,8 +1033,6 @@ function AdminFeaturedTab({ trips, showToast }) {
 
   useEffect(() => { load() }, [load])
 
-  const featuredCount = pool.filter((p) => p.featured).length
-
   /** 어느 여행 사진인지 한눈에 보이도록 여행별로 묶습니다. */
   const groups = useMemo(() => {
     const list = []
@@ -1043,32 +1044,88 @@ function AdminFeaturedTab({ trips, showToast }) {
     return list
   }, [pool])
 
-  const toggle = async (p) => {
-    if (!p.featured && featuredCount >= 5) { showToast('대표사진은 최대 5장까지 선택할 수 있어요.', 'error'); return }
-    await updateDoc(doc(db, COL.trips, p.tripId, COL.media, p.id), { featured: !p.featured })
-    if (!p.featured) {
+  const featuredCount = featuredList.length
+  const isFeatured = (id) => featuredList.some((f) => f.id === id)
+
+  const toggleFromGallery = async (p) => {
+    const next = !isFeatured(p.id)
+    if (next && featuredCount >= 5) { showToast('대표사진은 최대 5장까지 선택할 수 있어요. 먼저 하나를 제외해주세요.', 'error'); return }
+    await updateDoc(doc(db, COL.trips, p.tripId, COL.media, p.id), { featured: next })
+    if (next) {
       await fsSet([COL.featured], p.id, { url: p.url, tripId: p.tripId, tripTitle: p.tripTitle, addedAt: serverTimestamp() })
     } else {
       await fsDel([COL.featured], p.id)
     }
-    setPool((prev) => prev.map((x) => (x.id === p.id ? { ...x, featured: !x.featured } : x)))
+  }
+
+  const removeFeatured = async (f) => {
+    if (f.tripId) {
+      await updateDoc(doc(db, COL.trips, f.tripId, COL.media, f.id), { featured: false }).catch(() => {})
+    }
+    await fsDel([COL.featured], f.id)
+    showToast('대표사진에서 제외했습니다.')
+  }
+
+  const uploadDirect = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (featuredCount >= 5) { showToast('대표사진은 최대 5장까지 선택할 수 있어요. 먼저 하나를 제외해주세요.', 'error'); return }
+    setUploading({ name: file.name, percent: 0 })
+    try {
+      const res = await uploadToCloudinary(file, (p) => setUploading({ name: file.name, percent: p }))
+      await addDoc(collection(db, COL.featured), { url: res.secure_url, tripId: null, tripTitle: '', addedAt: serverTimestamp() })
+      showToast('대표사진이 추가되었습니다.')
+    } catch (err) {
+      showToast(err.message === 'CLOUDINARY_NOT_CONFIGURED' ? '사진 저장소 설정이 필요합니다. (README 참고)' : `업로드 실패: ${err.message}`, 'error')
+    } finally {
+      setUploading(null)
+    }
   }
 
   return (
     <div>
       <p style={{ ...S.sub, marginBottom: 14 }}>홈 화면 상단에 2초 간격으로 돌아가며 보여줄 대표사진을 최대 5장 선택하세요. ({featuredCount}/5)</p>
+
+      <div style={{ marginBottom: 26 }}>
+        <div style={{ fontWeight: 800, marginBottom: 10, fontSize: 16 }}>현재 선택된 대표사진</div>
+        {featuredList.length === 0 ? (
+          <div style={{ color: COLORS.sub, marginBottom: 12 }}>아직 선택된 대표사진이 없습니다.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 10, marginBottom: 14 }}>
+            {featuredList.map((f) => (
+              <div key={f.id} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1/1', border: `3px solid ${COLORS.greenBright}` }}>
+                <img src={toThumbUrl(f.url, 300)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button onClick={() => removeFeatured(f)} title="제외" style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 30, height: 30, fontSize: 15 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={uploadDirect} />
+        <button onClick={() => fileInputRef.current?.click()} style={S.btn(COLORS.blue)}>📷 내 휴대폰에서 새 사진 올리기</button>
+        {uploading && (
+          <div style={{ marginTop: 12, maxWidth: 320 }}>
+            <div style={{ fontSize: 14, marginBottom: 6 }}>업로드 중… {uploading.name} ({uploading.percent}%)</div>
+            <div style={{ height: 10, background: '#fff', border: `1px solid ${COLORS.border}`, borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${uploading.percent}%`, background: COLORS.greenBright, transition: 'width 0.2s' }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontWeight: 800, marginBottom: 14, fontSize: 16 }}>또는 이미 등록된 여행 사진에서 선택</div>
       {loading ? <div>불러오는 중…</div> : (
         groups.length === 0 ? <div style={{ color: COLORS.sub }}>등록된 사진이 없습니다.</div> : (
           groups.map((g) => (
             <div key={g.tripId} style={{ marginBottom: 24 }}>
-              <div style={{ fontWeight: 800, color: COLORS.blueDark, marginBottom: 10, fontSize: 16 }}>
+              <div style={{ fontWeight: 700, color: COLORS.blueDark, marginBottom: 10, fontSize: 15 }}>
                 🗓️ {g.tripTitle} {g.tripDate ? `· ${fmtDateLong(g.tripDate)}` : ''}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 10 }}>
                 {g.items.map((p) => (
-                  <div key={p.id} onClick={() => toggle(p)} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : `2px solid ${COLORS.border}` }}>
+                  <div key={p.id} onClick={() => toggleFromGallery(p)} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: isFeatured(p.id) ? `4px solid ${COLORS.greenBright}` : `2px solid ${COLORS.border}` }}>
                     <img src={toThumbUrl(p.url, 300)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    {p.featured && <div style={{ position: 'absolute', top: 4, right: 4, background: COLORS.greenBright, color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 13, fontWeight: 800 }}>★ 대표</div>}
+                    {isFeatured(p.id) && <div style={{ position: 'absolute', top: 4, right: 4, background: COLORS.greenBright, color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 13, fontWeight: 800 }}>★ 대표</div>}
                   </div>
                 ))}
               </div>
