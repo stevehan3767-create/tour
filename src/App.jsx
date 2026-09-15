@@ -14,8 +14,8 @@ import {
 ══════════════════════════════════════ */
 const CLUB_NAME = '백운호수 푸르지오 숲속의 아침 여행동호회'
 const CLUB_INTRO = '경기도 의왕시 백운호수 푸르지오 숲속의 아침, 여행을 사랑하는 이웃들의 모임입니다.'
-const ADMIN_ID = 'lyjlmh'
-const ADMIN_PW = 'lyjlmh1234'
+const ADMIN_ID = '1111'
+const ADMIN_PW = '1234'
 const ADMIN_SESSION_KEY = 'club_admin_session'
 
 /* ══════════════════════════════════════
