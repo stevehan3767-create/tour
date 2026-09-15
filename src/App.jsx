@@ -1220,12 +1220,10 @@ function AdminNotifyTab({ showToast }) {
 /* ══════════════════════════════════════
    관리자 패널
 ══════════════════════════════════════ */
-function AdminPanel({ notices, trips, showToast }) {
+function AdminPanel({ trips, showToast }) {
   const [tab, setTab] = useState('featured')
   const tabs = [
     ['featured', '⭐ 대표사진'],
-    ['notices', '📢 공지 현황'],
-    ['trips', '📷 여행 현황'],
     ['notify', '📱 문의 알림'],
   ]
   return (
@@ -1241,16 +1239,6 @@ function AdminPanel({ notices, trips, showToast }) {
       </div>
       <div style={S.card}>
         {tab === 'featured' && <AdminFeaturedTab trips={trips} showToast={showToast} />}
-        {tab === 'notices' && (
-          <div>
-            <p style={S.sub}>공지사항 등록·수정·삭제는 <b>공지사항</b> 메뉴에서 바로 할 수 있어요. (총 {notices.length}건)</p>
-          </div>
-        )}
-        {tab === 'trips' && (
-          <div>
-            <p style={S.sub}>여행 등록·삭제와 사진·영상 관리는 <b>여행앨범</b> 메뉴에서 바로 할 수 있어요. (총 {trips.length}건)</p>
-          </div>
-        )}
         {tab === 'notify' && <AdminNotifyTab showToast={showToast} />}
       </div>
     </div>
@@ -1298,7 +1286,7 @@ export default function App() {
       case 'tripDetail': return <TripDetailPage tripId={tripId} trips={trips} go={go} isAdmin={isAdmin} showToast={showToast} />
       case 'inquiry': return <InquiryPage isAdmin={isAdmin} showToast={showToast} />
       case 'admin': return isAdmin
-        ? <AdminPanel notices={notices} trips={trips} showToast={showToast} />
+        ? <AdminPanel trips={trips} showToast={showToast} />
         : <div style={{ ...S.page, textAlign: 'center', color: COLORS.danger }}>⛔ 관리자만 접근할 수 있습니다.</div>
       default: return <HomePage go={go} notices={notices} trips={trips} featured={featured} />
     }
