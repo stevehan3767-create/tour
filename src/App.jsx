@@ -528,7 +528,7 @@ function TripsPage({ trips, go, isAdmin, showToast }) {
 /* ══════════════════════════════════════
    라이트박스 (사진 크게 보기)
 ══════════════════════════════════════ */
-function Lightbox({ photos, index, onClose, onIndex }) {
+function Lightbox({ photos, index, onClose, onIndex, onDelete }) {
   const cur = photos[index]
   if (!cur) return null
   const move = (d) => onIndex((index + d + photos.length) % photos.length)
@@ -538,7 +538,8 @@ function Lightbox({ photos, index, onClose, onIndex }) {
       <div style={{ display: 'flex', gap: 14, marginTop: 18, flexWrap: 'wrap', justifyContent: 'center' }}>
         {photos.length > 1 && <button onClick={() => move(-1)} style={S.btnOutline}>◀ 이전</button>}
         <a href={toDownloadUrl(cur.url, cur.originalName)} style={{ ...S.btn(COLORS.greenBright), textDecoration: 'none' }}>⬇ 다운로드</a>
-        <button onClick={onClose} style={S.btnDanger}>닫기</button>
+        <button onClick={async () => { if (await onDelete(cur)) onClose() }} style={S.btnDanger}>🗑️ 삭제</button>
+        <button onClick={onClose} style={S.btnOutline}>닫기</button>
         {photos.length > 1 && <button onClick={() => move(1)} style={S.btnOutline}>다음 ▶</button>}
       </div>
       {cur.uploaderName && <div style={{ color: '#fff', marginTop: 12, fontSize: 15, opacity: 0.85 }}>올린 사람: {cur.uploaderName}</div>}
@@ -647,11 +648,17 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     return Boolean(name) && (m.uploaderName || '').trim().toLowerCase() === name
   }
 
+  /** 삭제 버튼은 누구에게나 보이지만, 실제 삭제는 올린 사람 본인 또는 관리자만 할 수 있습니다. */
   const removeMedia = async (m) => {
-    if (!confirm('삭제할까요?')) return
+    if (!canDelete(m)) {
+      showToast('본인이 올린 사진·영상·자료만 삭제할 수 있어요. (관리자만 다른 사람 것도 삭제할 수 있습니다)', 'error')
+      return false
+    }
+    if (!confirm('삭제할까요?')) return false
     await deleteDoc(doc(db, COL.trips, tripId, COL.media, m.id))
     if (m.featured) await fsDel([COL.featured], m.id).catch(() => {})
     showToast('삭제되었습니다.')
+    return true
   }
 
   const toggleFeatured = async (m) => {
@@ -744,12 +751,10 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                     return (
                       <div key={p.id} style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : 'none' }}>
                         <img onClick={() => setLightbox(i)} src={toThumbUrl(p.url, 400)} alt="여행사진" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        {(isAdmin || canDelete(p)) && (
-                          <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
-                            {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
-                            {canDelete(p) && <button onClick={() => removeMedia(p)} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>}
-                          </div>
-                        )}
+                        <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
+                          {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
+                          <button onClick={() => removeMedia(p)} title="삭제" style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>
+                        </div>
                       </div>
                     )
                   })}
@@ -757,7 +762,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
               </div>
             ))
           )}
-          {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} />}
+          {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} onDelete={removeMedia} />}
         </section>
       )}
 
@@ -778,7 +783,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                       <video src={v.url} controls preload="metadata" style={{ width: '100%', borderRadius: 12, background: '#000' }} />
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
                         <a href={toDownloadUrl(v.url, v.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                        {canDelete(v) && <button onClick={() => removeMedia(v)} style={S.btnDanger}>삭제</button>}
+                        <button onClick={() => removeMedia(v)} style={S.btnDanger}>🗑️ 삭제</button>
                       </div>
                     </div>
                   ))}
@@ -808,7 +813,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <a href={toDownloadUrl(f.url, f.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                    {canDelete(f) && <button onClick={() => removeMedia(f)} style={S.btnDanger}>삭제</button>}
+                    <button onClick={() => removeMedia(f)} style={S.btnDanger}>🗑️ 삭제</button>
                   </div>
                 </div>
               ))}
