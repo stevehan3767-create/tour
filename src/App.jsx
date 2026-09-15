@@ -861,23 +861,58 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
 ══════════════════════════════════════ */
 function InquiryPage({ isAdmin, showToast }) {
   const { data: inquiries } = useCollection([COL.inquiries], 'createdAt', 'desc')
-  const [form, setForm] = useState({ name: '', contact: '', message: '' })
+  const [tab, setTab] = useState('write')
+  const [form, setForm] = useState({ name: '', contact: '', title: '', message: '' })
+  const [viewerName, setViewerName] = useState(() => localStorage.getItem('club_uploader_name') || '')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ title: '', message: '' })
   const [replyDraft, setReplyDraft] = useState({})
   const notifyConfig = useDoc([COL.config], 'notify')
 
+  useEffect(() => { localStorage.setItem('club_uploader_name', viewerName) }, [viewerName])
+
   const submit = async () => {
-    if (!form.name.trim() || !form.contact.trim() || !form.message.trim()) { showToast('이름, 연락처, 내용을 모두 입력해주세요.', 'error'); return }
-    const { name, contact, message } = form
-    await fsAdd([COL.inquiries], { name, contact, message, answered: false, answer: '' })
-    setForm({ name: '', contact: '', message: '' })
-    showToast('문의가 접수되었습니다. 확인 후 연락드릴게요!')
+    if (!form.name.trim() || !form.contact.trim() || !form.title.trim() || !form.message.trim()) { showToast('이름, 연락처, 제목, 내용을 모두 입력해주세요.', 'error'); return }
+    const { name, contact, title, message } = form
+    await fsAdd([COL.inquiries], { name, contact, title, message, answered: false, answer: '' })
+    setForm({ name: '', contact: '', title: '', message: '' })
+    setViewerName(name)
+    showToast('문의가 접수되었습니다. "문의 보기"에서 확인하실 수 있어요.')
+    setTab('view')
     if (notifyConfig?.phone) {
       fetch('/api/notify-inquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, contact, message, to: notifyConfig.phone }),
+        body: JSON.stringify({ name, contact, message: `[${title}] ${message}`, to: notifyConfig.phone }),
       }).catch(() => {})
     }
+  }
+
+  /** 관리자이거나, 지금 입력된 이름이 글쓴이와 같으면 수정·삭제할 수 있습니다. */
+  const canManage = (q) => {
+    if (isAdmin) return true
+    const name = viewerName.trim().toLowerCase()
+    return Boolean(name) && (q.name || '').trim().toLowerCase() === name
+  }
+
+  const removeInquiry = async (q) => {
+    if (!canManage(q)) { showToast('작성자 본인 또는 관리자만 삭제할 수 있어요.', 'error'); return }
+    if (!confirm('삭제할까요?')) return
+    await fsDel([COL.inquiries], q.id)
+    showToast('삭제되었습니다.')
+  }
+
+  const startEdit = (q) => {
+    if (!canManage(q)) { showToast('작성자 본인 또는 관리자만 수정할 수 있어요.', 'error'); return }
+    setEditingId(q.id)
+    setEditForm({ title: q.title || '', message: q.message })
+  }
+
+  const saveEdit = async (id) => {
+    if (!editForm.title.trim() || !editForm.message.trim()) { showToast('제목과 내용을 입력해주세요.', 'error'); return }
+    await fsUpdate([COL.inquiries], id, { title: editForm.title, message: editForm.message })
+    setEditingId(null)
+    showToast('수정되었습니다.')
   }
 
   const reply = async (id) => {
@@ -891,34 +926,82 @@ function InquiryPage({ isAdmin, showToast }) {
       <h1 style={S.h1}>✉️ 문의하기</h1>
       <p style={S.sub}>궁금한 점이나 하고 싶은 말씀을 남겨주세요. 회원가입 없이 바로 남기실 수 있어요.</p>
 
-      <div style={{ ...S.card, margin: '18px 0 30px' }}>
-        <div style={S.label}>이름</div>
-        <input style={{ ...S.input, marginBottom: 12 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <div style={S.label}>연락처 (전화번호 등)</div>
-        <input style={{ ...S.input, marginBottom: 12 }} value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
-        <div style={S.label}>내용</div>
-        <textarea style={{ ...S.input, minHeight: 120, marginBottom: 14 }} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
-        <button onClick={submit} style={{ ...S.btn(COLORS.blue, true), width: '100%' }}>문의 보내기</button>
+      <div style={{ display: 'flex', gap: 8, margin: '18px 0 22px', flexWrap: 'wrap' }}>
+        {[['write', '✍️ 문의하기'], ['view', `📋 문의 보기 (${inquiries.length})`]].map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} style={{
+            background: tab === k ? COLORS.blue : '#fff', color: tab === k ? '#fff' : COLORS.blueDark,
+            border: `2px solid ${COLORS.blue}`, borderRadius: 14, padding: '13px 20px', fontSize: 17, fontWeight: 800,
+          }}>{label}</button>
+        ))}
       </div>
 
-      {isAdmin && (
-        <section>
-          <h2 style={S.h2}>📬 접수된 문의 ({inquiries.length})</h2>
+      {tab === 'write' && (
+        <div style={S.card}>
+          <div style={S.label}>이름</div>
+          <input style={{ ...S.input, marginBottom: 12 }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <div style={S.label}>연락처 (전화번호 등)</div>
+          <input style={{ ...S.input, marginBottom: 12 }} value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
+          <div style={{ fontSize: 13, color: COLORS.sub, marginTop: -8, marginBottom: 12 }}>연락처는 관리자만 볼 수 있고, 다른 사람에게는 보이지 않습니다.</div>
+          <div style={S.label}>제목</div>
+          <input style={{ ...S.input, marginBottom: 12 }} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <div style={S.label}>내용</div>
+          <textarea style={{ ...S.input, minHeight: 120, marginBottom: 14 }} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+          <button onClick={submit} style={{ ...S.btn(COLORS.blue, true), width: '100%' }}>문의 보내기</button>
+        </div>
+      )}
+
+      {tab === 'view' && (
+        <div>
+          <div style={{ ...S.card, background: COLORS.greenLight, border: 'none', marginBottom: 20 }}>
+            <div style={S.label}>이름</div>
+            <input style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={viewerName} onChange={(e) => setViewerName(e.target.value)} />
+            <div style={{ fontSize: 14, color: COLORS.sub, marginTop: 10 }}>본인이 남긴 문의의 이름과 같으면, 아래에서 직접 수정·삭제할 수 있어요.</div>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {inquiries.map((q) => (
               <div key={q.id} style={S.card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ fontWeight: 800 }}>{q.name} ({q.contact})</div>
-                  <span style={S.chip(q.answered ? COLORS.greenLight : COLORS.dangerLight, q.answered ? COLORS.green : COLORS.danger)}>{q.answered ? '답변완료' : '미답변'}</span>
-                </div>
-                <div style={{ marginTop: 8, color: COLORS.text, whiteSpace: 'pre-wrap' }}><Linkify text={q.message} /></div>
-                <textarea style={{ ...S.input, minHeight: 70, marginTop: 12 }} placeholder="답변 입력" defaultValue={q.answer || ''} onChange={(e) => setReplyDraft((d) => ({ ...d, [q.id]: e.target.value }))} />
-                <button onClick={() => reply(q.id)} style={{ ...S.btnGhost, marginTop: 8 }}>답변 저장</button>
+                {editingId === q.id ? (
+                  <>
+                    <input style={{ ...S.input, marginBottom: 10 }} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+                    <textarea style={{ ...S.input, minHeight: 100, marginBottom: 10 }} value={editForm.message} onChange={(e) => setEditForm({ ...editForm, message: e.target.value })} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => saveEdit(q.id)} style={S.btnGhost}>저장</button>
+                      <button onClick={() => setEditingId(null)} style={S.btnDanger}>취소</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 19 }}>{q.title || '(제목 없음)'}</div>
+                      <span style={S.chip(q.answered ? COLORS.greenLight : COLORS.dangerLight, q.answered ? COLORS.green : COLORS.danger)}>{q.answered ? '답변완료' : '미답변'}</span>
+                    </div>
+                    <div style={{ fontSize: 14, color: COLORS.sub, marginTop: 4 }}>
+                      {q.name} · {fmtDateTime(q.createdAt)}{isAdmin ? ` · ${q.contact}` : ''}
+                    </div>
+                    <div style={{ marginTop: 10, color: COLORS.text, whiteSpace: 'pre-wrap' }}><Linkify text={q.message} /></div>
+                    {q.answered && q.answer && (
+                      <div style={{ marginTop: 12, background: COLORS.blueLight, borderRadius: 12, padding: '10px 14px' }}>
+                        <div style={{ fontWeight: 700, color: COLORS.blueDark, marginBottom: 4, fontSize: 14 }}>💬 관리자 답변</div>
+                        <div style={{ color: COLORS.text, whiteSpace: 'pre-wrap' }}><Linkify text={q.answer} /></div>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                      <button onClick={() => startEdit(q)} style={S.btnGhost}>수정</button>
+                      <button onClick={() => removeInquiry(q)} style={S.btnDanger}>삭제</button>
+                    </div>
+                    {isAdmin && (
+                      <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${COLORS.border}` }}>
+                        <textarea style={{ ...S.input, minHeight: 70 }} placeholder="답변 입력" defaultValue={q.answer || ''} onChange={(e) => setReplyDraft((d) => ({ ...d, [q.id]: e.target.value }))} />
+                        <button onClick={() => reply(q.id)} style={{ ...S.btnGhost, marginTop: 8 }}>답변 저장</button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ))}
-            {inquiries.length === 0 && <div style={{ color: COLORS.sub }}>접수된 문의가 없습니다.</div>}
+            {inquiries.length === 0 && <div style={{ ...S.card, textAlign: 'center', color: COLORS.sub }}>접수된 문의가 없습니다.</div>}
           </div>
-        </section>
+        </div>
       )}
     </div>
   )
