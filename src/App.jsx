@@ -85,6 +85,38 @@ function suggestNextTripDate() {
   return secondTuesday(next.getFullYear(), next.getMonth())
 }
 
+/** Firestore Timestamp를 "9월 15일 오후 2:32" 형식으로 표시합니다. */
+function fmtDateTime(ts) {
+  if (!ts?.toDate) return '방금 전'
+  const d = ts.toDate()
+  const ampm = d.getHours() < 12 ? '오전' : '오후'
+  let h = d.getHours() % 12
+  if (h === 0) h = 12
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${ampm} ${h}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * 사진/영상을 "누가 · 언제 올렸는지" 알아보기 쉽도록 묶어줍니다.
+ * 같은 사람이 10분 이내에 연달아 올린 것들은 한 그룹으로 합칩니다.
+ * (list는 최신순으로 정렬되어 있어야 합니다)
+ */
+function groupByUploader(list) {
+  const GAP_MS = 10 * 60 * 1000
+  const groups = []
+  for (const m of list) {
+    const t = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : Date.now()
+    const name = m.uploaderName || ''
+    const last = groups[groups.length - 1]
+    if (last && last.uploaderName === name && last.time - t <= GAP_MS) {
+      last.items.push(m)
+      last.time = t
+    } else {
+      groups.push({ uploaderName: name, time: t, headerTs: m.createdAt, items: [m] })
+    }
+  }
+  return groups
+}
+
 /* ══════════════════════════════════════
    Firestore 헬퍼 & 훅
 ══════════════════════════════════════ */
@@ -526,6 +558,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const [uploading, setUploading] = useState(null)
   const [pending, setPending] = useState(null)
   const [lightbox, setLightbox] = useState(null)
+  const [tab, setTab] = useState('photo')
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -651,15 +684,9 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
       <div style={S.chip(COLORS.blueLight, COLORS.blueDark)}>{fmtDateLong(trip.date)}</div>
       <h1 style={{ ...S.h1, marginTop: 10 }}>{trip.title}</h1>
 
-      <div style={{ ...S.card, background: COLORS.greenLight, border: 'none', marginBottom: 26 }}>
+      <div style={{ ...S.card, background: COLORS.greenLight, border: 'none', marginBottom: 22 }}>
         <div style={S.label}>이름</div>
-        <input style={{ ...S.input, marginBottom: 14, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={() => photoInputRef.current?.click()} style={S.btn(COLORS.blue, true)}>📷 사진 올리기</button>
-          <button onClick={() => videoInputRef.current?.click()} style={S.btn(COLORS.greenBright, true)}>🎬 영상 올리기</button>
-          <button onClick={() => fileInputRef.current?.click()} style={S.btnOutline}>📎 자료 올리기</button>
-        </div>
-        <div style={{ fontSize: 14, color: COLORS.sub, marginTop: 10 }}>· 사진은 1인당 최대 {MAX_PHOTOS_PER_PERSON_PER_TRIP}장, 원본 화질 그대로 저장됩니다.<br />· 영상은 1개당 최대 100MB까지 업로드할 수 있어요.</div>
+        <input style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
         <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={onPickPhotos} />
         <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={onPickVideo} />
         <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
@@ -687,68 +714,108 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
         )}
       </div>
 
-      <section style={{ marginBottom: 30 }}>
-        <h2 style={S.h2}>📷 사진 ({photos.length})</h2>
-        {photos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 사진이 없습니다.</div> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
-            {photos.map((p, i) => (
-              <div key={p.id} style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : 'none' }}>
-                <img onClick={() => setLightbox(i)} src={toThumbUrl(p.url, 400)} alt="여행사진" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                {(isAdmin || canDelete(p)) && (
-                  <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
-                    {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
-                    {canDelete(p) && <button onClick={() => removeMedia(p)} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} />}
-      </section>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        {[
+          ['photo', '📷 사진보기', photos.length],
+          ['video', '🎬 동영상보기', videos.length],
+          ['file', '📎 자료보기', files.length],
+        ].map(([k, label, count]) => (
+          <button key={k} onClick={() => setTab(k)} style={{
+            background: tab === k ? COLORS.blue : '#fff', color: tab === k ? '#fff' : COLORS.blueDark,
+            border: `2px solid ${COLORS.blue}`, borderRadius: 14, padding: '13px 20px', fontSize: 17, fontWeight: 800,
+          }}>{label} ({count})</button>
+        ))}
+      </div>
 
-      <section style={{ marginBottom: 30 }}>
-        <h2 style={S.h2}>🎬 영상 ({videos.length})</h2>
-        {videos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 영상이 없습니다.</div> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 16 }}>
-            {videos.map((v) => (
-              <div key={v.id} style={S.card}>
-                <video src={v.url} controls preload="metadata" style={{ width: '100%', borderRadius: 12, background: '#000' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ fontSize: 14, color: COLORS.sub }}>{v.uploaderName} · {humanSize(v.bytes)}</span>
+      {tab === 'photo' && (
+        <section style={{ marginBottom: 30 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ ...S.h2, margin: 0 }}>📷 사진 ({photos.length})</h2>
+            <button onClick={() => photoInputRef.current?.click()} style={S.btn(COLORS.blue)}>📷 사진 올리기</button>
+          </div>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>1인당 최대 {MAX_PHOTOS_PER_PERSON_PER_TRIP}장, 원본 화질 그대로 저장됩니다.</div>
+          {photos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 사진이 없습니다.</div> : (
+            groupByUploader(photos).map((g, gi) => (
+              <div key={gi} style={{ marginBottom: 22 }}>
+                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}장</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
+                  {g.items.map((p) => {
+                    const i = photos.indexOf(p)
+                    return (
+                      <div key={p.id} style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : 'none' }}>
+                        <img onClick={() => setLightbox(i)} src={toThumbUrl(p.url, 400)} alt="여행사진" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        {(isAdmin || canDelete(p)) && (
+                          <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
+                            {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
+                            {canDelete(p) && <button onClick={() => removeMedia(p)} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+          {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} />}
+        </section>
+      )}
+
+      {tab === 'video' && (
+        <section style={{ marginBottom: 30 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ ...S.h2, margin: 0 }}>🎬 동영상 ({videos.length})</h2>
+            <button onClick={() => videoInputRef.current?.click()} style={S.btn(COLORS.greenBright)}>🎬 동영상 올리기</button>
+          </div>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>1개당 최대 100MB까지 업로드할 수 있어요.</div>
+          {videos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 동영상이 없습니다.</div> : (
+            groupByUploader(videos).map((g, gi) => (
+              <div key={gi} style={{ marginBottom: 22 }}>
+                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}개</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 16 }}>
+                  {g.items.map((v) => (
+                    <div key={v.id} style={S.card}>
+                      <video src={v.url} controls preload="metadata" style={{ width: '100%', borderRadius: 12, background: '#000' }} />
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, flexWrap: 'wrap', gap: 8 }}>
+                        <a href={toDownloadUrl(v.url, v.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
+                        {canDelete(v) && <button onClick={() => removeMedia(v)} style={S.btnDanger}>삭제</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+      )}
+
+      {tab === 'file' && (
+        <section>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ ...S.h2, margin: 0 }}>📎 자료 ({files.length})</h2>
+            <button onClick={() => fileInputRef.current?.click()} style={S.btnOutline}>📎 자료 올리기</button>
+          </div>
+          {files.length === 0 ? <div style={{ color: COLORS.sub }}>아직 등록된 자료가 없습니다.</div> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {files.map((f) => (
+                <div key={f.id} style={{ ...S.card, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 26 }}>{FILE_ICON[f.format] || '📁'}</span>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{f.originalName}</div>
+                      <div style={{ fontSize: 13, color: COLORS.sub }}>{f.uploaderName} · {fmtDateTime(f.createdAt)} · {humanSize(f.bytes)}</div>
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <a href={toDownloadUrl(v.url, v.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                    {canDelete(v) && <button onClick={() => removeMedia(v)} style={S.btnDanger}>삭제</button>}
+                    <a href={toDownloadUrl(f.url, f.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
+                    {canDelete(f) && <button onClick={() => removeMedia(f)} style={S.btnDanger}>삭제</button>}
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2 style={S.h2}>📎 자료 ({files.length})</h2>
-        {files.length === 0 ? <div style={{ color: COLORS.sub }}>아직 등록된 자료가 없습니다.</div> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {files.map((f) => (
-              <div key={f.id} style={{ ...S.card, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 26 }}>{FILE_ICON[f.format] || '📁'}</span>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{f.originalName}</div>
-                    <div style={{ fontSize: 13, color: COLORS.sub }}>{f.uploaderName} · {humanSize(f.bytes)}</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <a href={toDownloadUrl(f.url, f.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                  {canDelete(f) && <button onClick={() => removeMedia(f)} style={S.btnDanger}>삭제</button>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
