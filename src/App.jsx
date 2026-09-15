@@ -524,6 +524,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const { data: media } = useCollection([COL.trips, tripId, COL.media], 'createdAt', 'desc')
   const [uploaderName, setUploaderName] = useState(() => localStorage.getItem('club_uploader_name') || '')
   const [uploading, setUploading] = useState(null)
+  const [pending, setPending] = useState(null)
   const [lightbox, setLightbox] = useState(null)
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
@@ -535,12 +536,6 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const videos = useMemo(() => media.filter((m) => m.type === 'video'), [media])
   const files = useMemo(() => media.filter((m) => m.type === 'file'), [media])
   const featuredIds = useMemo(() => new Set(media.filter((m) => m.featured).map((m) => m.id)), [media])
-
-  const requireName = () => {
-    const name = uploaderName.trim()
-    if (!name) { showToast('먼저 이름을 입력해주세요.', 'error'); return null }
-    return name
-  }
 
   const doUpload = async (file, type, name) => {
     setUploading({ name: file.name, percent: 0 })
@@ -558,31 +553,65 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     }
   }
 
-  const onPickPhotos = async (e) => {
-    const name = requireName(); const list = Array.from(e.target.files || []); e.target.value = ''
-    if (!name || list.length === 0) return
-    const already = photos.filter((p) => p.uploaderName?.trim() === name).length
-    const remaining = MAX_PHOTOS_PER_PERSON_PER_TRIP - already
-    if (remaining <= 0) { showToast(`${name}님은 이번 여행에 이미 ${already}장을 올리셨어요. (1인당 최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장)`, 'error'); return }
-    const toUpload = list.slice(0, remaining)
-    if (list.length > remaining) showToast(`최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장까지만 올릴 수 있어 ${toUpload.length}장만 업로드합니다.`)
-    for (const f of toUpload) await doUpload(f, 'photo', name)
-    showToast('사진 업로드 완료!')
+  /** 사진/영상/자료를 실제로 업로드합니다. (이름이 준비된 뒤에만 호출) */
+  const runUploadBatch = async (kind, list, name) => {
+    if (kind === 'photo') {
+      const already = photos.filter((p) => p.uploaderName?.trim() === name).length
+      const remaining = MAX_PHOTOS_PER_PERSON_PER_TRIP - already
+      if (remaining <= 0) { showToast(`${name}님은 이번 여행에 이미 ${already}장을 올리셨어요. (1인당 최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장)`, 'error'); return }
+      const toUpload = list.slice(0, remaining)
+      if (list.length > remaining) showToast(`최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장까지만 올릴 수 있어 ${toUpload.length}장만 업로드합니다.`)
+      for (const f of toUpload) await doUpload(f, 'photo', name)
+      showToast('사진 업로드 완료!')
+    } else if (kind === 'video') {
+      const f = list[0]
+      if (f.size > VIDEO_MAX_BYTES) { showToast(`영상 용량(${humanSize(f.size)})이 100MB를 넘어 업로드할 수 없어요.`, 'error'); return }
+      await doUpload(f, 'video', name)
+      showToast('영상 업로드 완료!')
+    } else if (kind === 'file') {
+      await doUpload(list[0], 'file', name)
+      showToast('자료 업로드 완료!')
+    }
   }
 
-  const onPickVideo = async (e) => {
-    const name = requireName(); const f = e.target.files?.[0]; e.target.value = ''
-    if (!name || !f) return
-    if (f.size > VIDEO_MAX_BYTES) { showToast(`영상 용량(${humanSize(f.size)})이 100MB를 넘어 업로드할 수 없어요.`, 'error'); return }
-    await doUpload(f, 'video', name)
-    showToast('영상 업로드 완료!')
+  /** 파일을 고르면: 이름이 이미 있으면 바로 업로드, 없으면 이름을 넣을 때까지 대기시킵니다. (선택 순서 상관없음) */
+  const handlePicked = (kind, list) => {
+    if (list.length === 0) return
+    const name = uploaderName.trim()
+    if (!name) {
+      setPending({ kind, list })
+      showToast('이름을 입력하고 "업로드하기"를 눌러주세요.')
+      return
+    }
+    runUploadBatch(kind, list, name)
   }
 
-  const onPickFile = async (e) => {
-    const name = requireName(); const f = e.target.files?.[0]; e.target.value = ''
-    if (!name || !f) return
-    await doUpload(f, 'file', name)
-    showToast('자료 업로드 완료!')
+  const onPickPhotos = (e) => {
+    const list = Array.from(e.target.files || []); e.target.value = ''
+    handlePicked('photo', list)
+  }
+  const onPickVideo = (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''
+    handlePicked('video', f ? [f] : [])
+  }
+  const onPickFile = (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''
+    handlePicked('file', f ? [f] : [])
+  }
+
+  const confirmPendingUpload = () => {
+    const name = uploaderName.trim()
+    if (!name) { showToast('먼저 이름을 입력해주세요.', 'error'); return }
+    if (!pending) return
+    runUploadBatch(pending.kind, pending.list, name)
+    setPending(null)
+  }
+
+  /** 관리자이거나, 지금 입력된 이름이 그 사진/영상/자료를 올린 사람과 같으면 삭제할 수 있습니다. */
+  const canDelete = (m) => {
+    if (isAdmin) return true
+    const name = uploaderName.trim().toLowerCase()
+    return Boolean(name) && (m.uploaderName || '').trim().toLowerCase() === name
   }
 
   const removeMedia = async (m) => {
@@ -634,6 +663,20 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
         <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={onPickPhotos} />
         <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={onPickVideo} />
         <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
+        {pending && (
+          <div style={{ marginTop: 14, background: '#fff', border: `2px dashed ${COLORS.blue}`, borderRadius: 14, padding: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              {pending.kind === 'photo' && `📷 사진 ${pending.list.length}장 선택됨`}
+              {pending.kind === 'video' && `🎬 영상 선택됨 (${pending.list[0].name})`}
+              {pending.kind === 'file' && `📎 자료 선택됨 (${pending.list[0].name})`}
+            </div>
+            <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 10 }}>위에 이름을 입력한 뒤 아래 버튼을 눌러 업로드하세요.</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={confirmPendingUpload} style={S.btn(COLORS.blue)}>업로드하기</button>
+              <button onClick={() => setPending(null)} style={S.btnDanger}>선택 취소</button>
+            </div>
+          </div>
+        )}
         {uploading && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontSize: 14, marginBottom: 6 }}>업로드 중… {uploading.name} ({uploading.percent}%)</div>
@@ -651,10 +694,10 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
             {photos.map((p, i) => (
               <div key={p.id} style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', aspectRatio: '1/1', cursor: 'pointer', border: p.featured ? `4px solid ${COLORS.greenBright}` : 'none' }}>
                 <img onClick={() => setLightbox(i)} src={toThumbUrl(p.url, 400)} alt="여행사진" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                {isAdmin && (
+                {(isAdmin || canDelete(p)) && (
                   <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
-                    <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>
-                    <button onClick={() => removeMedia(p)} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>
+                    {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
+                    {canDelete(p) && <button onClick={() => removeMedia(p)} style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>}
                   </div>
                 )}
               </div>
@@ -675,7 +718,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                   <span style={{ fontSize: 14, color: COLORS.sub }}>{v.uploaderName} · {humanSize(v.bytes)}</span>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <a href={toDownloadUrl(v.url, v.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                    {isAdmin && <button onClick={() => removeMedia(v)} style={S.btnDanger}>삭제</button>}
+                    {canDelete(v) && <button onClick={() => removeMedia(v)} style={S.btnDanger}>삭제</button>}
                   </div>
                 </div>
               </div>
@@ -699,7 +742,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <a href={toDownloadUrl(f.url, f.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                  {isAdmin && <button onClick={() => removeMedia(f)} style={S.btnDanger}>삭제</button>}
+                  {canDelete(f) && <button onClick={() => removeMedia(f)} style={S.btnDanger}>삭제</button>}
                 </div>
               </div>
             ))}
