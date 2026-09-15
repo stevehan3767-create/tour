@@ -361,10 +361,10 @@ function HeroSlider({ featured }) {
         <img key={f.id} src={toThumbUrl(f.url, 1200)} alt="여행 대표사진"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: i === idx ? 1 : 0, transition: 'opacity 1s ease' }} />
       ))}
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.05), rgba(0,0,0,0.55))' }} />
-      <div style={{ position: 'relative', zIndex: 2, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', textAlign: 'center', padding: '0 20px' }}>
-        <div style={{ fontSize: 'clamp(24px,4.5vw,40px)', fontWeight: 900, textShadow: '0 3px 16px rgba(0,0,0,0.6)' }}>{CLUB_NAME}</div>
-        <div style={{ fontSize: 'clamp(15px,2.4vw,19px)', marginTop: 10, fontWeight: 600, textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{featured[idx]?.tripTitle || ''}</div>
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.05) 32%, rgba(0,0,0,0.05) 68%, rgba(0,0,0,0.3) 100%)' }} />
+      <div style={{ position: 'relative', zIndex: 2, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', color: '#fff', textAlign: 'center', padding: '0 20px', paddingTop: 'clamp(18px,5vw,44px)' }}>
+        <div style={{ fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800, textShadow: '0 2px 10px rgba(0,0,0,0.5)', opacity: 0.85 }}>{CLUB_NAME}</div>
+        <div style={{ fontSize: 'clamp(14px,2.2vw,18px)', marginTop: 8, fontWeight: 600, textShadow: '0 1px 8px rgba(0,0,0,0.4)', opacity: 0.75 }}>{featured[idx]?.tripTitle || ''}</div>
       </div>
       <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8, zIndex: 3 }}>
         {featured.map((_, i) => (
