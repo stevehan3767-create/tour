@@ -145,6 +145,19 @@ function useCollection(path, orderField = 'createdAt', dir = 'desc', max) {
   return { data }
 }
 
+/** 공지사항·문의 내용 속의 인터넷 주소를 눌러서 바로 이동할 수 있는 링크로 바꿔줍니다. */
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi
+function Linkify({ text }) {
+  if (!text) return null
+  return text.split(URL_REGEX).map((part, i) => {
+    if (/^(https?:\/\/|www\.)/i.test(part)) {
+      const href = part.startsWith('http') ? part : `https://${part}`
+      return <a key={i} href={href} target="_blank" rel="noopener noreferrer" style={{ color: COLORS.blue, textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</a>
+    }
+    return part
+  })
+}
+
 /**
  * 처음 방문했을 때 홈페이지가 비어 보이지 않도록, 실제 여행에서 찍은
  * 사진 몇 장으로 예시 여행앨범과 대표사진을 한 번만 자동으로 만들어 둡니다.
@@ -452,7 +465,7 @@ function NoticesPage({ notices, isAdmin, showToast }) {
                   <div style={{ fontWeight: 800, fontSize: 20 }}>{n.title}</div>
                   <div style={{ fontSize: 20, color: COLORS.blue }}>{openId === n.id ? '▲' : '▼'}</div>
                 </div>
-                {openId === n.id && <div style={{ marginTop: 12, fontSize: 17, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>{n.content}</div>}
+                {openId === n.id && <div style={{ marginTop: 12, fontSize: 17, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}><Linkify text={n.content} /></div>}
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                     <button onClick={() => setEditing({ id: n.id, title: n.title, content: n.content })} style={S.btnGhost}>수정</button>
@@ -871,7 +884,7 @@ function InquiryPage({ isAdmin, showToast }) {
                   <div style={{ fontWeight: 800 }}>{q.name} ({q.contact})</div>
                   <span style={S.chip(q.answered ? COLORS.greenLight : COLORS.dangerLight, q.answered ? COLORS.green : COLORS.danger)}>{q.answered ? '답변완료' : '미답변'}</span>
                 </div>
-                <div style={{ marginTop: 8, color: COLORS.text, whiteSpace: 'pre-wrap' }}>{q.message}</div>
+                <div style={{ marginTop: 8, color: COLORS.text, whiteSpace: 'pre-wrap' }}><Linkify text={q.message} /></div>
                 <textarea style={{ ...S.input, minHeight: 70, marginTop: 12 }} placeholder="답변 입력" defaultValue={q.answer || ''} onChange={(e) => setReplyDraft((d) => ({ ...d, [q.id]: e.target.value }))} />
                 <button onClick={() => reply(q.id)} style={{ ...S.btnGhost, marginTop: 8 }}>답변 저장</button>
               </div>
