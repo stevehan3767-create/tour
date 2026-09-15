@@ -28,6 +28,7 @@ export const db = getFirestore(app)
  *   inquiries        문의하기
  *   featured         홈 화면에 표시할 대표사진(최대 5장)
  *   config           관리자 설정 (문의 알림 받을 휴대폰번호 등)
+ *   visits           날짜별 방문자 수 집계
  */
 export const COL = {
   notices: 'club_notices',
@@ -36,4 +37,5 @@ export const COL = {
   inquiries: 'club_inquiries',
   featured: 'club_featured',
   config: 'club_config',
+  visits: 'club_visits',
 }

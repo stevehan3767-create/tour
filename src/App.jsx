@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { db, COL } from './firebase.js'
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, query, orderBy, limit, serverTimestamp, getDocs, getDoc,
+  onSnapshot, query, orderBy, limit, serverTimestamp, getDocs, getDoc, increment,
 } from 'firebase/firestore'
 import {
   uploadToCloudinary, toDownloadUrl, toThumbUrl, isCloudinaryReady,
@@ -180,6 +180,17 @@ function Linkify({ text }) {
  * 사진 몇 장으로 예시 여행앨범과 대표사진을 한 번만 자동으로 만들어 둡니다.
  * (이미 만들어져 있으면 다시 실행하지 않습니다)
  */
+
+/** 브라우저 탭을 새로 열 때마다(같은 탭 새로고침은 제외) 오늘 날짜 방문 수를 1 늘립니다. */
+function recordVisit() {
+  try {
+    if (sessionStorage.getItem('club_visit_counted')) return
+    sessionStorage.setItem('club_visit_counted', '1')
+    const today = toISO(new Date())
+    setDoc(doc(db, COL.visits, today), { date: today, count: increment(1), updatedAt: serverTimestamp() }, { merge: true }).catch(() => {})
+  } catch {}
+}
+
 async function ensureSeedData() {
   try {
     const markerRef = doc(db, 'club_config', 'seeded')
@@ -1218,6 +1229,48 @@ function AdminNotifyTab({ showToast }) {
 }
 
 /* ══════════════════════════════════════
+   관리자 - 방문자 통계
+══════════════════════════════════════ */
+function AdminVisitsTab() {
+  const { data: visits } = useCollection([COL.visits], 'date', 'desc')
+  const total = visits.reduce((sum, v) => sum + (v.count || 0), 0)
+  const today = toISO(new Date())
+  const todayCount = visits.find((v) => v.date === today)?.count || 0
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 24 }}>
+        <div style={{ ...S.card, textAlign: 'center', background: COLORS.blueLight, border: 'none' }}>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 6 }}>누적 방문자 수</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: COLORS.blueDark }}>{total.toLocaleString()}</div>
+        </div>
+        <div style={{ ...S.card, textAlign: 'center', background: COLORS.greenLight, border: 'none' }}>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 6 }}>오늘 방문자 수</div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: COLORS.green }}>{todayCount.toLocaleString()}</div>
+        </div>
+      </div>
+
+      <div style={{ fontWeight: 800, marginBottom: 12, fontSize: 16 }}>날짜별 방문자 수</div>
+      {visits.length === 0 ? (
+        <div style={{ color: COLORS.sub }}>아직 방문 기록이 없습니다.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {visits.map((v) => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: v.date === today ? COLORS.greenLight : '#fff', border: `1px solid ${COLORS.border}`, borderRadius: 12 }}>
+              <span style={{ fontWeight: 600 }}>{fmtDateLong(v.date)}{v.date === today ? ' (오늘)' : ''}</span>
+              <span style={{ fontWeight: 800, color: COLORS.blueDark }}>{(v.count || 0).toLocaleString()}명</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 13, color: COLORS.sub, marginTop: 14 }}>
+        · 같은 사람이 같은 탭에서 새로고침만 한 경우는 중복으로 세지 않습니다. (탭을 새로 열거나 다른 기기로 접속하면 새로 집계됩니다)
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════
    관리자 패널
 ══════════════════════════════════════ */
 function AdminPanel({ trips, showToast }) {
@@ -1225,6 +1278,7 @@ function AdminPanel({ trips, showToast }) {
   const tabs = [
     ['featured', '⭐ 대표사진'],
     ['notify', '📱 문의 알림'],
+    ['visits', '📊 방문자 통계'],
   ]
   return (
     <div style={S.page}>
@@ -1240,6 +1294,7 @@ function AdminPanel({ trips, showToast }) {
       <div style={S.card}>
         {tab === 'featured' && <AdminFeaturedTab trips={trips} showToast={showToast} />}
         {tab === 'notify' && <AdminNotifyTab showToast={showToast} />}
+        {tab === 'visits' && <AdminVisitsTab />}
       </div>
     </div>
   )
@@ -1261,7 +1316,7 @@ export default function App() {
 
   const go = (p, id = null) => { setPage(p); setTripId(id); window.scrollTo(0, 0) }
 
-  useEffect(() => { ensureSeedData() }, [])
+  useEffect(() => { ensureSeedData(); recordVisit() }, [])
 
   const { data: notices } = useCollection([COL.notices])
   const { data: trips } = useCollection([COL.trips], 'date', 'desc')
