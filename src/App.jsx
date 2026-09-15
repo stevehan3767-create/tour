@@ -333,13 +333,13 @@ function AdminLoginModal({ onClose, onSuccess, showToast }) {
 }
 
 /* ══════════════════════════════════════
-   홈 페이지 (대표사진 슬라이드 2초 간격)
+   홈 페이지 (대표사진 슬라이드 3.5초 간격)
 ══════════════════════════════════════ */
 function HeroSlider({ featured }) {
   const [idx, setIdx] = useState(0)
   useEffect(() => {
     if (featured.length < 2) return
-    const t = setInterval(() => setIdx((i) => (i + 1) % featured.length), 2000)
+    const t = setInterval(() => setIdx((i) => (i + 1) % featured.length), 3500)
     return () => clearInterval(t)
   }, [featured.length])
 
@@ -1123,7 +1123,7 @@ function AdminFeaturedTab({ trips, showToast }) {
 
   return (
     <div>
-      <p style={{ ...S.sub, marginBottom: 14 }}>홈 화면 상단에 2초 간격으로 돌아가며 보여줄 대표사진을 최대 5장 고른 뒤, 아래 <b>저장하기</b> 버튼을 눌러주세요. ({selectedList.length}/5)</p>
+      <p style={{ ...S.sub, marginBottom: 14 }}>홈 화면 상단에 3.5초 간격으로 돌아가며 보여줄 대표사진을 최대 5장 고른 뒤, 아래 <b>저장하기</b> 버튼을 눌러주세요. ({selectedList.length}/5)</p>
 
       <div style={{ marginBottom: 26 }}>
         <div style={{ fontWeight: 800, marginBottom: 10, fontSize: 16 }}>현재 선택된 대표사진</div>
