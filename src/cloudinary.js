@@ -65,7 +65,11 @@ export function uploadToCloudinary(file, onProgress) {
 /** 사진/영상을 "다운로드"용 링크로 바꿉니다 (브라우저에서 열지 않고 저장되도록). */
 export function toDownloadUrl(secureUrl, filename) {
   if (!secureUrl) return secureUrl
-  const flag = filename ? `fl_attachment:${encodeURIComponent(filename)}` : 'fl_attachment'
+  // fl_attachment:이름 에 마침표(.)가 들어가면 Cloudinary가 확장자로 착각해
+  // "Invalid flag in transformation" 오류를 내므로, 확장자를 뗀 이름만 사용합니다.
+  // (실제 저장되는 확장자는 Cloudinary가 원본 형식에 맞춰 자동으로 붙여줍니다)
+  const base = filename ? filename.split('.')[0].trim() : ''
+  const flag = base ? `fl_attachment:${encodeURIComponent(base)}` : 'fl_attachment'
   if (secureUrl.includes('/upload/')) {
     return secureUrl.replace('/upload/', `/upload/${flag}/`)
   }
