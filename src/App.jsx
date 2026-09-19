@@ -598,6 +598,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const trip = trips.find((t) => t.id === tripId)
   const { data: media } = useCollection([COL.trips, tripId, COL.media], 'createdAt', 'desc')
   const [uploaderName, setUploaderName] = useState(() => localStorage.getItem('club_uploader_name') || '')
+  const [photographerName, setPhotographerName] = useState(() => localStorage.getItem('club_photographer_name') || '')
   const [uploading, setUploading] = useState(null)
   const [pending, setPending] = useState(null)
   const [lightbox, setLightbox] = useState(null)
@@ -607,19 +608,21 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const fileInputRef = useRef(null)
 
   useEffect(() => { localStorage.setItem('club_uploader_name', uploaderName) }, [uploaderName])
+  useEffect(() => { localStorage.setItem('club_photographer_name', photographerName) }, [photographerName])
 
   const photos = useMemo(() => media.filter((m) => m.type === 'photo'), [media])
   const videos = useMemo(() => media.filter((m) => m.type === 'video'), [media])
   const files = useMemo(() => media.filter((m) => m.type === 'file'), [media])
   const featuredIds = useMemo(() => new Set(media.filter((m) => m.featured).map((m) => m.id)), [media])
 
-  const doUpload = async (file, type, name) => {
+  const doUpload = async (file, type, name, photographer) => {
     setUploading({ name: file.name, percent: 0 })
     try {
       const res = await uploadToCloudinary(file, (p) => setUploading({ name: file.name, percent: p }))
       await addDoc(collection(db, COL.trips, tripId, COL.media), {
         type, url: res.secure_url, publicId: res.public_id, format: res.format,
         bytes: res.bytes, originalName: file.name, uploaderName: name,
+        photographer: photographer || null,
         featured: false, createdAt: serverTimestamp(),
       })
     } catch (e) {
@@ -629,23 +632,26 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     }
   }
 
-  /** 사진/영상/자료를 실제로 업로드합니다. (이름이 준비된 뒤에만 호출) */
-  const runUploadBatch = async (kind, list, name) => {
+  /** 사진/영상/자료를 실제로 업로드합니다. (이름이 준비된 뒤에만 호출) 관리자는 개수·용량 제한이 없습니다. */
+  const runUploadBatch = async (kind, list, name, photographer) => {
     if (kind === 'photo') {
-      const already = photos.filter((p) => p.uploaderName?.trim() === name).length
-      const remaining = MAX_PHOTOS_PER_PERSON_PER_TRIP - already
-      if (remaining <= 0) { showToast(`${name}님은 이번 여행에 이미 ${already}장을 올리셨어요. (1인당 최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장)`, 'error'); return }
-      const toUpload = list.slice(0, remaining)
-      if (list.length > remaining) showToast(`최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장까지만 올릴 수 있어 ${toUpload.length}장만 업로드합니다.`)
-      for (const f of toUpload) await doUpload(f, 'photo', name)
+      let toUpload = list
+      if (!isAdmin) {
+        const already = photos.filter((p) => p.uploaderName?.trim() === name).length
+        const remaining = MAX_PHOTOS_PER_PERSON_PER_TRIP - already
+        if (remaining <= 0) { showToast(`${name}님은 이번 여행에 이미 ${already}장을 올리셨어요. (1인당 최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장)`, 'error'); return }
+        toUpload = list.slice(0, remaining)
+        if (list.length > remaining) showToast(`최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장까지만 올릴 수 있어 ${toUpload.length}장만 업로드합니다.`)
+      }
+      for (const f of toUpload) await doUpload(f, 'photo', name, photographer)
       showToast('사진 업로드 완료!')
     } else if (kind === 'video') {
       const f = list[0]
-      if (f.size > VIDEO_MAX_BYTES) { showToast(`영상 용량(${humanSize(f.size)})이 100MB를 넘어 업로드할 수 없어요.`, 'error'); return }
-      await doUpload(f, 'video', name)
+      if (!isAdmin && f.size > VIDEO_MAX_BYTES) { showToast(`영상 용량(${humanSize(f.size)})이 100MB를 넘어 업로드할 수 없어요.`, 'error'); return }
+      await doUpload(f, 'video', name, photographer)
       showToast('영상 업로드 완료!')
     } else if (kind === 'file') {
-      await doUpload(list[0], 'file', name)
+      await doUpload(list[0], 'file', name, photographer)
       showToast('자료 업로드 완료!')
     }
   }
@@ -659,7 +665,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
       showToast('이름을 입력하고 "업로드하기"를 눌러주세요.')
       return
     }
-    runUploadBatch(kind, list, name)
+    runUploadBatch(kind, list, name, photographerName.trim())
   }
 
   const onPickPhotos = (e) => {
@@ -679,7 +685,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     const name = uploaderName.trim()
     if (!name) { showToast('먼저 이름을 입력해주세요.', 'error'); return }
     if (!pending) return
-    runUploadBatch(pending.kind, pending.list, name)
+    runUploadBatch(pending.kind, pending.list, name, photographerName.trim())
     setPending(null)
   }
 
@@ -736,6 +742,12 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
       <div style={{ ...S.card, background: COLORS.greenLight, border: 'none', marginBottom: 22 }}>
         <div style={S.label}>이름</div>
         <input style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
+        {isAdmin && (
+          <>
+            <div style={{ ...S.label, marginTop: 14 }}>촬영인 (선택)</div>
+            <input style={{ ...S.input, maxWidth: 320 }} placeholder="사진·영상을 찍은 사람 이름" value={photographerName} onChange={(e) => setPhotographerName(e.target.value)} />
+          </>
+        )}
         <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={onPickPhotos} />
         <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={onPickVideo} />
         <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
@@ -782,11 +794,11 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
             <h2 style={{ ...S.h2, margin: 0 }}>📷 사진 ({photos.length})</h2>
             <button onClick={() => photoInputRef.current?.click()} style={S.btn(COLORS.blue)}>📷 사진 올리기</button>
           </div>
-          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>1인당 최대 {MAX_PHOTOS_PER_PERSON_PER_TRIP}장, 원본 화질 그대로 저장됩니다.</div>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>{isAdmin ? '관리자는 개수·용량 제한 없이 원본 화질 그대로 저장됩니다.' : `1인당 최대 ${MAX_PHOTOS_PER_PERSON_PER_TRIP}장, 원본 화질 그대로 저장됩니다.`}</div>
           {photos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 사진이 없습니다.</div> : (
             groupByUploader(photos).map((g, gi) => (
               <div key={gi} style={{ marginBottom: 22 }}>
-                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}장</div>
+                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}장{g.items[0]?.photographer ? ` · 촬영: ${g.items[0].photographer}` : ''}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
                   {g.items.map((p) => {
                     const i = photos.indexOf(p)
@@ -814,11 +826,11 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
             <h2 style={{ ...S.h2, margin: 0 }}>🎬 동영상 ({videos.length})</h2>
             <button onClick={() => videoInputRef.current?.click()} style={S.btn(COLORS.greenBright)}>🎬 동영상 올리기</button>
           </div>
-          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>1개당 최대 100MB까지 업로드할 수 있어요.</div>
+          <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 16 }}>{isAdmin ? '관리자는 용량 제한 없이 업로드할 수 있어요.' : '1개당 최대 100MB까지 업로드할 수 있어요.'}</div>
           {videos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 동영상이 없습니다.</div> : (
             groupByUploader(videos).map((g, gi) => (
               <div key={gi} style={{ marginBottom: 22 }}>
-                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}개</div>
+                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}개{g.items[0]?.photographer ? ` · 촬영: ${g.items[0].photographer}` : ''}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 16 }}>
                   {g.items.map((v) => (
                     <div key={v.id} style={S.card}>
