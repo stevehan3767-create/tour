@@ -445,24 +445,71 @@ function HomePage({ go, notices, trips, featured }) {
 function NoticesPage({ notices, isAdmin, showToast }) {
   const [openId, setOpenId] = useState(null)
   const [form, setForm] = useState({ title: '', content: '' })
+  const [newFiles, setNewFiles] = useState([])
   const [editing, setEditing] = useState(null)
+  const [editNewFiles, setEditNewFiles] = useState([])
+  const [uploading, setUploading] = useState(null)
+  const fileInputRef = useRef(null)
+  const editFileInputRef = useRef(null)
+
+  const uploadAll = async (files) => {
+    const results = []
+    for (const f of files) {
+      setUploading({ name: f.name, percent: 0 })
+      const res = await uploadToCloudinary(f, (p) => setUploading({ name: f.name, percent: p }))
+      results.push({ url: res.secure_url, originalName: f.name, format: res.format, bytes: res.bytes })
+    }
+    setUploading(null)
+    return results
+  }
 
   const submit = async () => {
     if (!form.title.trim() || !form.content.trim()) { showToast('제목과 내용을 입력해주세요.', 'error'); return }
-    await fsAdd([COL.notices], form)
-    setForm({ title: '', content: '' })
-    showToast('공지사항이 등록되었습니다.')
+    try {
+      const attachments = newFiles.length ? await uploadAll(newFiles) : []
+      await fsAdd([COL.notices], { title: form.title, content: form.content, attachments })
+      setForm({ title: '', content: '' })
+      setNewFiles([])
+      showToast('공지사항이 등록되었습니다.')
+    } catch (e) {
+      setUploading(null)
+      showToast(e.message === 'CLOUDINARY_NOT_CONFIGURED' ? '파일 저장소 설정이 필요합니다. (README 참고)' : `첨부파일 업로드 실패: ${e.message}`, 'error')
+    }
   }
   const saveEdit = async (id) => {
-    await fsUpdate([COL.notices], id, { title: editing.title, content: editing.content })
-    setEditing(null)
-    showToast('수정되었습니다.')
+    try {
+      const uploaded = editNewFiles.length ? await uploadAll(editNewFiles) : []
+      const attachments = [...(editing.attachments || []), ...uploaded]
+      await fsUpdate([COL.notices], id, { title: editing.title, content: editing.content, attachments })
+      setEditing(null)
+      setEditNewFiles([])
+      showToast('수정되었습니다.')
+    } catch (e) {
+      setUploading(null)
+      showToast(e.message === 'CLOUDINARY_NOT_CONFIGURED' ? '파일 저장소 설정이 필요합니다. (README 참고)' : `첨부파일 업로드 실패: ${e.message}`, 'error')
+    }
   }
   const remove = async (id) => {
     if (!confirm('이 공지사항을 삭제할까요?')) return
     await fsDel([COL.notices], id)
     showToast('삭제되었습니다.')
   }
+
+  const AttachmentPicker = ({ files, onAdd, onRemove }) => (
+    <div style={{ marginBottom: 10 }}>
+      {files.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+          {files.map((f, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: 10, padding: '8px 12px', border: `1px solid ${COLORS.border}` }}>
+              <span style={{ fontSize: 14 }}>📎 {f.name}</span>
+              <button onClick={() => onRemove(i)} style={{ background: 'none', border: 'none', color: COLORS.danger, fontSize: 16, cursor: 'pointer' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={onAdd} style={S.btnOutline}>📎 파일 첨부</button>
+    </div>
+  )
 
   return (
     <div style={S.page}>
@@ -472,6 +519,16 @@ function NoticesPage({ notices, isAdmin, showToast }) {
           <div style={S.label}>새 공지 등록</div>
           <input style={{ ...S.input, marginBottom: 10 }} placeholder="제목" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <textarea style={{ ...S.input, minHeight: 100, resize: 'vertical', marginBottom: 10 }} placeholder="내용" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
+          <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => { setNewFiles((prev) => [...prev, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
+          <AttachmentPicker files={newFiles} onAdd={() => fileInputRef.current?.click()} onRemove={(i) => setNewFiles((prev) => prev.filter((_, idx) => idx !== i))} />
+          {uploading && (
+            <div style={{ marginBottom: 10, maxWidth: 320 }}>
+              <div style={{ fontSize: 14, marginBottom: 6 }}>첨부파일 업로드 중… {uploading.name} ({uploading.percent}%)</div>
+              <div style={{ height: 10, background: '#fff', border: `1px solid ${COLORS.border}`, borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${uploading.percent}%`, background: COLORS.greenBright, transition: 'width 0.2s' }} />
+              </div>
+            </div>
+          )}
           <button onClick={submit} style={S.btn(COLORS.blue)}>등록하기</button>
         </div>
       )}
@@ -483,9 +540,29 @@ function NoticesPage({ notices, isAdmin, showToast }) {
               <>
                 <input style={{ ...S.input, marginBottom: 10 }} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
                 <textarea style={{ ...S.input, minHeight: 100, marginBottom: 10 }} value={editing.content} onChange={(e) => setEditing({ ...editing, content: e.target.value })} />
+                <input ref={editFileInputRef} type="file" multiple hidden onChange={(e) => { setEditNewFiles((prev) => [...prev, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
+                {(editing.attachments || []).length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                    {editing.attachments.map((a, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', borderRadius: 10, padding: '8px 12px', border: `1px solid ${COLORS.border}` }}>
+                        <span style={{ fontSize: 14 }}>{FILE_ICON[a.format] || '📎'} {a.originalName}</span>
+                        <button onClick={() => setEditing((prev) => ({ ...prev, attachments: prev.attachments.filter((_, idx) => idx !== i) }))} style={{ background: 'none', border: 'none', color: COLORS.danger, fontSize: 16, cursor: 'pointer' }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <AttachmentPicker files={editNewFiles} onAdd={() => editFileInputRef.current?.click()} onRemove={(i) => setEditNewFiles((prev) => prev.filter((_, idx) => idx !== i))} />
+                {uploading && (
+                  <div style={{ marginBottom: 10, maxWidth: 320 }}>
+                    <div style={{ fontSize: 14, marginBottom: 6 }}>첨부파일 업로드 중… {uploading.name} ({uploading.percent}%)</div>
+                    <div style={{ height: 10, background: '#fff', border: `1px solid ${COLORS.border}`, borderRadius: 6, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${uploading.percent}%`, background: COLORS.greenBright, transition: 'width 0.2s' }} />
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => saveEdit(n.id)} style={S.btnGhost}>저장</button>
-                  <button onClick={() => setEditing(null)} style={S.btnDanger}>취소</button>
+                  <button onClick={() => { setEditing(null); setEditNewFiles([]) }} style={S.btnDanger}>취소</button>
                 </div>
               </>
             ) : (
@@ -494,10 +571,24 @@ function NoticesPage({ notices, isAdmin, showToast }) {
                   <div style={{ fontWeight: 800, fontSize: 20 }}>{n.title}</div>
                   <div style={{ fontSize: 20, color: COLORS.blue }}>{openId === n.id ? '▲' : '▼'}</div>
                 </div>
-                {openId === n.id && <div style={{ marginTop: 12, fontSize: 17, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}><Linkify text={n.content} /></div>}
+                {openId === n.id && (
+                  <>
+                    <div style={{ marginTop: 12, fontSize: 17, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}><Linkify text={n.content} /></div>
+                    {(n.attachments || []).length > 0 && (
+                      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {n.attachments.map((a, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: COLORS.bg, borderRadius: 10, padding: '10px 14px', border: `1px solid ${COLORS.border}` }}>
+                            <span style={{ fontSize: 15 }}>{FILE_ICON[a.format] || '📎'} {a.originalName} <span style={{ color: COLORS.sub, fontSize: 13 }}>({humanSize(a.bytes)})</span></span>
+                            <a href={toDownloadUrl(a.url, a.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <button onClick={() => setEditing({ id: n.id, title: n.title, content: n.content })} style={S.btnGhost}>수정</button>
+                    <button onClick={() => { setEditing({ id: n.id, title: n.title, content: n.content, attachments: n.attachments || [] }); setEditNewFiles([]) }} style={S.btnGhost}>수정</button>
                     <button onClick={() => remove(n.id)} style={S.btnDanger}>삭제</button>
                   </div>
                 )}
