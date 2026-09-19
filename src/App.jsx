@@ -830,41 +830,40 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
       <div style={S.chip(COLORS.blueLight, COLORS.blueDark)}>{fmtDateLong(trip.date)}</div>
       <h1 style={{ ...S.h1, marginTop: 10 }}>{trip.title}</h1>
 
-      <div style={{ ...S.card, background: COLORS.greenLight, border: 'none', marginBottom: 22 }}>
-        <div style={S.label}>이름</div>
-        <input style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
-        {isAdmin && (
-          <>
-            <div style={{ ...S.label, marginTop: 14 }}>촬영인 (선택)</div>
-            <input style={{ ...S.input, maxWidth: 320 }} placeholder="사진·영상을 찍은 사람 이름" value={photographerName} onChange={(e) => setPhotographerName(e.target.value)} />
-          </>
-        )}
-        <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={onPickPhotos} />
-        <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={onPickVideo} />
-        <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
-        {pending && (
-          <div style={{ marginTop: 14, background: '#fff', border: `2px dashed ${COLORS.blue}`, borderRadius: 14, padding: 14 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>
-              {pending.kind === 'photo' && `📷 사진 ${pending.list.length}장 선택됨`}
-              {pending.kind === 'video' && `🎬 영상 선택됨 (${pending.list[0].name})`}
-              {pending.kind === 'file' && `📎 자료 선택됨 (${pending.list[0].name})`}
-            </div>
-            <div style={{ fontSize: 14, color: COLORS.sub, marginBottom: 10 }}>위에 이름을 입력한 뒤 아래 버튼을 눌러 업로드하세요.</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={confirmPendingUpload} style={S.btn(COLORS.blue)}>업로드하기</button>
-              <button onClick={() => setPending(null)} style={S.btnDanger}>선택 취소</button>
-            </div>
+      <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={onPickPhotos} />
+      <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={onPickVideo} />
+      <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
+
+      {pending && (
+        <div style={{ ...S.card, background: COLORS.greenLight, border: `2px dashed ${COLORS.blue}`, marginBottom: 22 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12 }}>
+            {pending.kind === 'photo' && `📷 사진 ${pending.list.length}장 선택됨`}
+            {pending.kind === 'video' && `🎬 영상 선택됨 (${pending.list[0].name})`}
+            {pending.kind === 'file' && `📎 자료 선택됨 (${pending.list[0].name})`}
           </div>
-        )}
-        {uploading && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 14, marginBottom: 6 }}>업로드 중… {uploading.name} ({uploading.percent}%)</div>
-            <div style={{ height: 10, background: '#fff', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${uploading.percent}%`, background: COLORS.greenBright, transition: 'width 0.2s' }} />
-            </div>
+          <div style={S.label}>이름</div>
+          <input autoFocus style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
+          {isAdmin && (
+            <>
+              <div style={{ ...S.label, marginTop: 14 }}>촬영인 (선택)</div>
+              <input style={{ ...S.input, maxWidth: 320 }} placeholder="사진·영상을 찍은 사람 이름" value={photographerName} onChange={(e) => setPhotographerName(e.target.value)} />
+            </>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button onClick={confirmPendingUpload} style={S.btn(COLORS.blue)}>업로드하기</button>
+            <button onClick={() => setPending(null)} style={S.btnDanger}>선택 취소</button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {uploading && (
+        <div style={{ ...S.card, marginBottom: 22 }}>
+          <div style={{ fontSize: 14, marginBottom: 6 }}>업로드 중… {uploading.name} ({uploading.percent}%)</div>
+          <div style={{ height: 10, background: COLORS.border, borderRadius: 6, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${uploading.percent}%`, background: COLORS.greenBright, transition: 'width 0.2s' }} />
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         {[
