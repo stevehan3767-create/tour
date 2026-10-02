@@ -457,7 +457,8 @@ function NoticesPage({ notices, isAdmin, showToast }) {
     for (const f of files) {
       setUploading({ name: f.name, percent: 0 })
       const res = await uploadToCloudinary(f, (p) => setUploading({ name: f.name, percent: p }))
-      results.push({ url: res.secure_url, originalName: f.name, format: res.format, bytes: res.bytes })
+      if (!res?.secure_url) throw new Error(`"${f.name}" 업로드 응답이 올바르지 않습니다.`)
+      results.push({ url: res.secure_url, originalName: f.name, format: res.format || '', bytes: res.bytes || 0 })
     }
     setUploading(null)
     return results
@@ -467,10 +468,11 @@ function NoticesPage({ notices, isAdmin, showToast }) {
     if (!form.title.trim() || !form.content.trim()) { showToast('제목과 내용을 입력해주세요.', 'error'); return }
     try {
       const attachments = newFiles.length ? await uploadAll(newFiles) : []
-      await fsAdd([COL.notices], { title: form.title, content: form.content, attachments })
+      const ref = await fsAdd([COL.notices], { title: form.title, content: form.content, attachments })
       setForm({ title: '', content: '' })
       setNewFiles([])
-      showToast('공지사항이 등록되었습니다.')
+      setOpenId(ref.id)
+      showToast(attachments.length ? `공지사항이 등록되었습니다. (첨부파일 ${attachments.length}개)` : '공지사항이 등록되었습니다.')
     } catch (e) {
       setUploading(null)
       showToast(e.message === 'CLOUDINARY_NOT_CONFIGURED' ? '파일 저장소 설정이 필요합니다. (README 참고)' : `첨부파일 업로드 실패: ${e.message}`, 'error')
@@ -483,6 +485,7 @@ function NoticesPage({ notices, isAdmin, showToast }) {
       await fsUpdate([COL.notices], id, { title: editing.title, content: editing.content, attachments })
       setEditing(null)
       setEditNewFiles([])
+      setOpenId(id)
       showToast('수정되었습니다.')
     } catch (e) {
       setUploading(null)
@@ -501,7 +504,11 @@ function NoticesPage({ notices, isAdmin, showToast }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {files.map((f, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: 10, padding: '8px 12px', border: `1px solid ${COLORS.border}` }}>
-              <span style={{ fontSize: 14 }}>📎 {f.name}</span>
+              <span style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                {isImageFile(f) ? (
+                  <img src={URL.createObjectURL(f)} alt={f.name} style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6 }} />
+                ) : '📎'} {f.name}
+              </span>
               <button onClick={() => onRemove(i)} style={{ background: 'none', border: 'none', color: COLORS.danger, fontSize: 16, cursor: 'pointer' }}>✕</button>
             </div>
           ))}
@@ -509,6 +516,25 @@ function NoticesPage({ notices, isAdmin, showToast }) {
       )}
       <button onClick={onAdd} style={S.btnOutline}>📎 파일 첨부</button>
     </div>
+  )
+
+  const AttachmentView = ({ a }) => (
+    isImageFormat(a.format) ? (
+      <div style={{ background: COLORS.bg, borderRadius: 10, padding: 10, border: `1px solid ${COLORS.border}` }}>
+        <a href={a.url} target="_blank" rel="noreferrer">
+          <img src={toThumbUrl(a.url, 700)} alt={a.originalName} style={{ width: '100%', maxHeight: 420, objectFit: 'contain', borderRadius: 8, display: 'block', background: '#fff' }} />
+        </a>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <span style={{ fontSize: 14, color: COLORS.sub }}>{a.originalName} ({humanSize(a.bytes)})</span>
+          <a href={toDownloadUrl(a.url, a.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
+        </div>
+      </div>
+    ) : (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: COLORS.bg, borderRadius: 10, padding: '10px 14px', border: `1px solid ${COLORS.border}` }}>
+        <span style={{ fontSize: 15 }}>{FILE_ICON[a.format] || '📎'} {a.originalName} <span style={{ color: COLORS.sub, fontSize: 13 }}>({humanSize(a.bytes)})</span></span>
+        <a href={toDownloadUrl(a.url, a.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
+      </div>
+    )
   )
 
   return (
@@ -545,7 +571,11 @@ function NoticesPage({ notices, isAdmin, showToast }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                     {editing.attachments.map((a, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', borderRadius: 10, padding: '8px 12px', border: `1px solid ${COLORS.border}` }}>
-                        <span style={{ fontSize: 14 }}>{FILE_ICON[a.format] || '📎'} {a.originalName}</span>
+                        <span style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {isImageFormat(a.format) ? (
+                            <img src={toThumbUrl(a.url, 100)} alt={a.originalName} style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6 }} />
+                          ) : FILE_ICON[a.format] || '📎'} {a.originalName}
+                        </span>
                         <button onClick={() => setEditing((prev) => ({ ...prev, attachments: prev.attachments.filter((_, idx) => idx !== i) }))} style={{ background: 'none', border: 'none', color: COLORS.danger, fontSize: 16, cursor: 'pointer' }}>✕</button>
                       </div>
                     ))}
@@ -575,13 +605,8 @@ function NoticesPage({ notices, isAdmin, showToast }) {
                   <>
                     <div style={{ marginTop: 12, fontSize: 17, color: COLORS.text, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}><Linkify text={n.content} /></div>
                     {(n.attachments || []).length > 0 && (
-                      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {n.attachments.map((a, i) => (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: COLORS.bg, borderRadius: 10, padding: '10px 14px', border: `1px solid ${COLORS.border}` }}>
-                            <span style={{ fontSize: 15 }}>{FILE_ICON[a.format] || '📎'} {a.originalName} <span style={{ color: COLORS.sub, fontSize: 13 }}>({humanSize(a.bytes)})</span></span>
-                            <a href={toDownloadUrl(a.url, a.originalName)} style={{ ...S.btnGhost, textDecoration: 'none' }}>⬇ 다운로드</a>
-                          </div>
-                        ))}
+                      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {n.attachments.map((a, i) => <AttachmentView key={i} a={a} />)}
                       </div>
                     )}
                   </>
@@ -684,6 +709,9 @@ function Lightbox({ photos, index, onClose, onIndex, onDelete }) {
    여행 상세 (사진/영상/자료 업로드,보기,다운로드)
 ══════════════════════════════════════ */
 const FILE_ICON = { pdf: '📕', doc: '📄', docx: '📄', hwp: '📄', hwpx: '📄', xls: '📊', xlsx: '📊', ppt: '📽️', pptx: '📽️', zip: '🗜️' }
+const IMAGE_FORMATS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'avif', 'bmp'])
+const isImageFormat = (format) => IMAGE_FORMATS.has((format || '').toLowerCase())
+const isImageFile = (file) => file?.type?.startsWith('image/')
 
 function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const trip = trips.find((t) => t.id === tripId)
