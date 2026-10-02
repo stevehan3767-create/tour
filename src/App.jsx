@@ -498,6 +498,18 @@ function NoticesPage({ notices, isAdmin, showToast }) {
     showToast('삭제되었습니다.')
   }
 
+  /** 파일 선택 즉시 토스트로 확인시켜줍니다. (선택이 실제로 되었는지 바로 알 수 있도록) */
+  const onFilesPicked = (e, setter) => {
+    const picked = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (picked.length === 0) {
+      showToast('선택된 파일이 없습니다. 다시 눌러 사진/파일을 선택해주세요.', 'error')
+      return
+    }
+    setter((prev) => [...prev, ...picked])
+    showToast(`파일 ${picked.length}개 선택됨: ${picked.map((f) => f.name).join(', ')}`)
+  }
+
   const AttachmentPicker = ({ files, onAdd, onRemove }) => (
     <div style={{ marginBottom: 10 }}>
       {files.length > 0 && (
@@ -545,7 +557,7 @@ function NoticesPage({ notices, isAdmin, showToast }) {
           <div style={S.label}>새 공지 등록</div>
           <input style={{ ...S.input, marginBottom: 10 }} placeholder="제목" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <textarea style={{ ...S.input, minHeight: 100, resize: 'vertical', marginBottom: 10 }} placeholder="내용" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
-          <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => { setNewFiles((prev) => [...prev, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
+          <input ref={fileInputRef} type="file" multiple accept={ATTACHMENT_ACCEPT} hidden onChange={(e) => onFilesPicked(e, setNewFiles)} />
           <AttachmentPicker files={newFiles} onAdd={() => fileInputRef.current?.click()} onRemove={(i) => setNewFiles((prev) => prev.filter((_, idx) => idx !== i))} />
           {uploading && (
             <div style={{ marginBottom: 10, maxWidth: 320 }}>
@@ -566,7 +578,7 @@ function NoticesPage({ notices, isAdmin, showToast }) {
               <>
                 <input style={{ ...S.input, marginBottom: 10 }} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
                 <textarea style={{ ...S.input, minHeight: 100, marginBottom: 10 }} value={editing.content} onChange={(e) => setEditing({ ...editing, content: e.target.value })} />
-                <input ref={editFileInputRef} type="file" multiple hidden onChange={(e) => { setEditNewFiles((prev) => [...prev, ...Array.from(e.target.files || [])]); e.target.value = '' }} />
+                <input ref={editFileInputRef} type="file" multiple accept={ATTACHMENT_ACCEPT} hidden onChange={(e) => onFilesPicked(e, setEditNewFiles)} />
                 {(editing.attachments || []).length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                     {editing.attachments.map((a, i) => (
@@ -712,6 +724,9 @@ const FILE_ICON = { pdf: '📕', doc: '📄', docx: '📄', hwp: '📄', hwpx: '
 const IMAGE_FORMATS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'avif', 'bmp'])
 const isImageFormat = (format) => IMAGE_FORMATS.has((format || '').toLowerCase())
 const isImageFile = (file) => file?.type?.startsWith('image/')
+/** 이미지 외 흔한 문서 형식도 허용 (너무 좁히면 안드로이드에서 사진 갤러리 탭이 안 뜨고,
+ *  너무 넓히면(accept 없음) 기기에 따라 단순 파일탐색기만 떠서 사진 선택이 헷갈릴 수 있음) */
+const ATTACHMENT_ACCEPT = 'image/*,.pdf,.doc,.docx,.hwp,.hwpx,.xls,.xlsx,.ppt,.pptx,.zip,.txt'
 
 function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
   const trip = trips.find((t) => t.id === tripId)
