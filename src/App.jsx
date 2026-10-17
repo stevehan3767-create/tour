@@ -857,6 +857,16 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     }
   }
 
+  /** 이미 올라온 사진·영상 묶음(같은 사람이 같은 때 올린 것)의 촬영인을 관리자가 나중에 고칠 수 있도록 합니다. */
+  const editPhotographer = async (group) => {
+    const current = group.items[0]?.photographer || ''
+    const next = window.prompt('촬영인 이름을 입력해주세요. (비우면 촬영인 정보가 지워집니다)', current)
+    if (next === null) return
+    const name = next.trim()
+    await Promise.all(group.items.map((m) => updateDoc(doc(db, COL.trips, tripId, COL.media, m.id), { photographer: name || null })))
+    showToast('촬영인이 수정되었습니다.')
+  }
+
   if (!trip) {
     return (
       <div style={S.page}>
@@ -932,7 +942,10 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
           {photos.length === 0 ? <div style={{ color: COLORS.sub }}>아직 사진이 없습니다.</div> : (
             groupByUploader(photos).map((g, gi) => (
               <div key={gi} style={{ marginBottom: 22 }}>
-                <div style={{ fontWeight: 700, color: COLORS.sub, marginBottom: 10, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}장{g.items[0]?.photographer ? ` · 촬영: ${g.items[0].photographer}` : ''}</div>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, color: COLORS.sub, fontSize: 15 }}>🙍 {g.uploaderName || '이름없음'} · {fmtDateTime(g.headerTs)} · {g.items.length}장{g.items[0]?.photographer ? ` · 촬영: ${g.items[0].photographer}` : ''}</div>
+                  {isAdmin && <button onClick={() => editPhotographer(g)} style={{ ...S.btnGhost, padding: '3px 10px', fontSize: 13 }}>✏️ 촬영인 수정</button>}
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
                   {g.items.map((p) => {
                     const i = photos.indexOf(p)
