@@ -790,13 +790,14 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
     }
   }
 
-  /** 파일을 고르면: 이름이 이미 있으면 바로 업로드, 없으면 이름을 넣을 때까지 대기시킵니다. (선택 순서 상관없음) */
+  /** 파일을 고르면: 이름이 이미 있으면 바로 업로드, 없으면 이름을 넣을 때까지 대기시킵니다. (선택 순서 상관없음)
+   *  관리자는 다른 사람을 대신 올려줄 때가 많아, 매번 "올리는 사람" 이름을 확인·수정할 수 있도록 항상 입력창을 띄웁니다. */
   const handlePicked = (kind, list) => {
     if (list.length === 0) return
     const name = uploaderName.trim()
-    if (!name) {
+    if (!name || isAdmin) {
       setPending({ kind, list })
-      showToast('이름을 입력하고 "업로드하기"를 눌러주세요.')
+      if (!isAdmin) showToast('이름을 입력하고 "업로드하기"를 눌러주세요.')
       return
     }
     runUploadBatch(kind, list, name, photographerName.trim())
@@ -884,7 +885,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
             {pending.kind === 'video' && `🎬 영상 선택됨 (${pending.list[0].name})`}
             {pending.kind === 'file' && `📎 자료 선택됨 (${pending.list[0].name})`}
           </div>
-          <div style={S.label}>이름</div>
+          <div style={S.label}>올리는 사람 이름</div>
           <input autoFocus style={{ ...S.input, maxWidth: 320 }} placeholder="예: 홍길동" value={uploaderName} onChange={(e) => setUploaderName(e.target.value)} />
           {isAdmin && (
             <>
