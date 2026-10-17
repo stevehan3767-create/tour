@@ -708,7 +708,7 @@ function Lightbox({ photos, index, onClose, onIndex, onDelete }) {
       <div style={{ display: 'flex', gap: 14, marginTop: 18, flexWrap: 'wrap', justifyContent: 'center' }}>
         {photos.length > 1 && <button onClick={() => move(-1)} style={S.btnOutline}>◀ 이전</button>}
         <a href={toDownloadUrl(cur.url, cur.originalName)} style={{ ...S.btn(COLORS.greenBright), textDecoration: 'none' }}>⬇ 다운로드</a>
-        <button onClick={async () => { if (await onDelete(cur)) onClose() }} style={S.btnDanger}>🗑️ 삭제</button>
+        {onDelete && <button onClick={async () => { if (await onDelete(cur)) onClose() }} style={S.btnDanger}>🗑️ 삭제</button>}
         <button onClick={onClose} style={S.btnOutline}>닫기</button>
         {photos.length > 1 && <button onClick={() => move(1)} style={S.btnOutline}>다음 ▶</button>}
       </div>
@@ -946,7 +946,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
                         <img onClick={() => setLightbox(i)} src={toThumbUrl(p.url, 400)} alt="여행사진" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 4 }}>
                           {isAdmin && <button onClick={() => toggleFeatured(p)} title="대표사진 지정" style={{ background: p.featured ? COLORS.greenBright : 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>★</button>}
-                          <button onClick={() => removeMedia(p)} title="삭제" style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>
+                          {isAdmin && <button onClick={() => removeMedia(p)} title="삭제" style={{ background: 'rgba(255,255,255,0.9)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16 }}>🗑️</button>}
                         </div>
                       </div>
                     )
@@ -955,7 +955,7 @@ function TripDetailPage({ tripId, trips, go, isAdmin, showToast }) {
               </div>
             ))
           )}
-          {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} onDelete={removeMedia} />}
+          {lightbox !== null && <Lightbox photos={photos} index={lightbox} onClose={() => setLightbox(null)} onIndex={setLightbox} onDelete={isAdmin ? removeMedia : null} />}
         </section>
       )}
 
